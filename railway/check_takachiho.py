@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 
 TARGET_DATE = "2026/05/16"
 TARGET_DATE_END = "2026/05/17"
@@ -33,7 +34,7 @@ def get_token(session):
     return match.group(1)
 
 
-def check():
+def check(attempt_number):
     session = requests.Session()
 
     token = get_token(session)
@@ -79,12 +80,13 @@ def check():
         msg = "🚤 Takachiho AVAILABLE!\n\n" + "\n".join(available)
         send_telegram(msg)
         print("AVAILABLE")
-    else:
-        send_telegram("Nope");
-        print(data)
+    elif attempt_number % 10 == 0:
+        msg = f"Nope, but still alive. Attempt #{attempt_number}"
+        send_telegram(msg)
 
 
 if __name__ == "__main__":
+    attempt_number = 0
     while True:
-        check()
-        time.sleep(60)  # 10 minutes
+        check(attempt_number)
+        time.sleep(60)  # 1 minutes
