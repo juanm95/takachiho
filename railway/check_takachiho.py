@@ -4,6 +4,10 @@ import time
 import traceback
 import re
 from urllib.parse import quote
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 TARGET_DATE = "2026/05/17"
 TARGET_DATE_END = "2026/05/18"
@@ -18,6 +22,12 @@ SEARCH_URL = "https://eipro.jp/takachiho1/eventCalendars/search"
 BASE_VIEW = "https://eipro.jp/takachiho1/events/view/EV00000007"
 
 last_available = set()
+
+def is_quiet_hours():
+    now = datetime.now(LOCAL_TZ)
+    hour = now.hour
+
+    return hour >= 23 or hour < 8
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -112,7 +122,7 @@ def check(attempt_number):
         send_telegram(msg)
 
         last_available = current_available
-    elif attempt_number % 60 == 0:
+    elif attempt_number % 180 == 0 and not is_quiet_hours():
         msg = f"No change, but still alive. Attempt #{attempt_number}"
         send_telegram(msg)
 
