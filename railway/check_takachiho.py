@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
-TARGET_DATE = "2026/05/15"
-TARGET_DATE_END = "2026/05/18"
+TARGET_DATE = "2026/05/16"
+TARGET_DATE_END = "2026/05/17"
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -20,6 +20,9 @@ SEARCH_URL = "https://eipro.jp/takachiho1/eventCalendars/search"
 
 
 BASE_VIEW = "https://eipro.jp/takachiho1/events/view/EV00000007"
+
+MIN_HOUR = 10  # 10:00 AM or later only
+REQUIRED_DAY = 16 
 
 action_token = ""
 last_available = set()
@@ -104,6 +107,16 @@ def check(attempt_number):
     link_map = {}
 
     for s in slots:
+        if TARGET_DATE not in s.get("service_start_datetime", ""):
+            continue
+
+        start_dt = s["service_start_datetime"]
+        hour = int(start_dt.split(" ")[1].split(":")[0])
+        day = int(start_dt.split(" ")[0].split("/")[2])
+
+        if hour < MIN_HOUR or day != REQUIRED_DAY:
+            continue
+
         if (
             int(s.get("order_remain_amount", 0)) > 0
             and s.get("ordable") is True
