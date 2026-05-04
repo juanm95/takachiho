@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
-TARGET_DATE = "2026/05/17"
+TARGET_DATE = "2026/05/15"
 TARGET_DATE_END = "2026/05/18"
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -21,13 +21,17 @@ SEARCH_URL = "https://eipro.jp/takachiho1/eventCalendars/search"
 
 BASE_VIEW = "https://eipro.jp/takachiho1/events/view/EV00000007"
 
+action_token = ""
 last_available = set()
 
 def is_quiet_hours():
     now = datetime.now(LOCAL_TZ)
     hour = now.hour
 
-    return hour >= 23 or hour < 8
+    quiet_hours = hour >= 23 or hour < 8
+    if (quiet_hours):
+        print("It's quiet hours")
+    return quiet_hours
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -35,6 +39,10 @@ def send_telegram(msg):
 
 def get_token(session):
     r = session.get(BASE_PAGE)
+    print(f"get_token response length: {len(r.text) // 1000}k")
+    print("--- SNIPPET START ---")
+    print(r.text[:1000])
+    print("--- SNIPPET END ---")
     r.raise_for_status()
 
     # simple & robust extraction (your confirmed HTML structure)
@@ -53,7 +61,7 @@ def build_link(slot):
         f"{BASE_VIEW}"
         f"?closable=1"
         f"&service_cd={slot['service_cd']}"
-        f"&service_session_cd={slot['service_session_cd']}"
+        f"&service_session_cd={slot['session_cd']}"
         f"&service_start_datetime={quote(slot['service_start_datetime'])}"
         f"&service_end_datetime={quote(slot['service_end_datetime'])}"
     )
@@ -61,12 +69,15 @@ def build_link(slot):
 def check(attempt_number):
     session = requests.Session()
 
-    token = get_token(session)
+    global action_token
+    
+    if(len(action_token) == 0):
+        action_token = get_token(session)
 
     payload = {
         "data[conds][ServiceView][max_session_dateOver]": TARGET_DATE,
         "data[conds][ServiceView][min_session_dateUnder]": TARGET_DATE_END,
-        "action_token": token,
+        "action_token": action_token,
         "root_action": "index",
         "calendar_view_name": "agendaWeek",
         "calendar_type": "week",
@@ -80,7 +91,10 @@ def check(attempt_number):
 
     r = session.post(SEARCH_URL, data=payload, headers=headers)
     r.raise_for_status()
-
+    print(f"search response length: {len(r.text) // 1000}k")
+    print("--- SNIPPET START ---")
+    print(r.text[:1000])
+    print("--- SNIPPET END ---")
     data = r.json()
 
     slots = data.get("results", [])
@@ -90,13 +104,9 @@ def check(attempt_number):
     link_map = {}
 
     for s in slots:
-        if TARGET_DATE not in s.get("service_start_datetime", ""):
-            continue
-
         if (
-            not s.get("fully_reserved_flg", True)
-            or int(s.get("order_remain_amount", 0)) > 0
-            or s.get("ordable") is True
+            int(s.get("order_remain_amount", 0)) > 0
+            and s.get("ordable") is True
         ):
             key = s["service_start_datetime"]
             current_available.add(key)
@@ -104,38 +114,40 @@ def check(attempt_number):
 
     if current_available != last_available:
 
-        added = current_available - last_available
-        removed = last_available - current_available
+        msgs = []
+        msgs.append("Currently available:")
 
-        msg = "🚤 Availability change detected!\n\n"
+        for t in sorted(current_available):
+            msgs.append(f"{t}\n{link_map[t]}") 
 
-        if added:
-            msg += "🟢 NEW SLOTS:\n"
-            for t in sorted(added):
-                msg += f"{t}\n{link_map[t]}\n\n"
+        if (len(msgs) == 1):
+            msgs.append("None")
 
-        if removed:
-            msg += "🔴 REMOVED SLOTS:\n"
-            for t in sorted(removed):
-                msg += f"{t}\n"
-
-        send_telegram(msg)
+        for msg in msgs:
+            print(msg)
+            send_telegram(msg)
+            time.sleep(3)
 
         last_available = current_available
     elif attempt_number % 180 == 0 and not is_quiet_hours():
         msg = f"No change, but still alive. Attempt #{attempt_number}"
         send_telegram(msg)
+        print(msg)
 
 def run(attempt_number):
     print(f"Attempt #{attempt_number}")
     try:
         check(attempt_number)
+        print(f"Done with attempt #{attempt_number}")
     except Exception as e:
         error_msg = (
             "⚠️ Takachiho checker error\n\n"
             f"{str(e)}\n\n"
             f"{traceback.format_exc()}"
         )
+        global action_token
+        action_token = ""
+        print(error_msg)
         send_telegram(error_msg)
 
 if __name__ == "__main__":
